@@ -51,7 +51,7 @@ pub fn list_available_balls(error_logs: &mut ErrorLogs) -> Vec<(String, PathBuf)
 /// Returns info for a ball texture in which the input ends with its name.
 ///
 /// Picks the texture with the longer name.
-pub fn find_texture(
+pub fn find_ball_texture(
     current_string: &str,
     error_logs: &mut ErrorLogs,
 ) -> Option<(String, Texture2D)> {
@@ -74,32 +74,10 @@ pub fn find_texture(
 
     let (ball_name, ball_path) = selected_ball?;
 
-    let bytes = match fs::read(&ball_path) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            error_logs.display_error(format!(
-                "Failed to read texture bytes from \"{}\": {err}",
-                ball_path.to_string_lossy()
-            ));
-            return None;
-        }
-    };
-
-    let ball_texture = match Texture2D::from_file_with_format(&bytes, None) {
-        Ok(texture) => texture,
-        Err(err) => {
-            error_logs.display_error(format!(
-                "Failed to read texture data from \"{}\": {err}",
-                ball_path.to_string_lossy()
-            ));
-            return None;
-        }
-    };
-
-    return Some((ball_name, ball_texture));
+    return load_ball_texture(error_logs, &ball_path).map(|texture| (ball_name, texture));
 }
 
-pub fn get_random_texture(error_logs: &mut ErrorLogs) -> Option<(String, Texture2D)> {
+pub fn get_random_ball_texture(error_logs: &mut ErrorLogs) -> Option<(String, Texture2D)> {
     let available_balls = list_available_balls(error_logs);
 
     if available_balls.is_empty() {
@@ -114,7 +92,11 @@ pub fn get_random_texture(error_logs: &mut ErrorLogs) -> Option<(String, Texture
             .unwrap_unchecked()
     };
 
-    let bytes = match fs::read(&ball_path) {
+    return load_ball_texture(error_logs, &ball_path).map(|texture| (ball_name, texture));
+}
+
+fn load_ball_texture(error_logs: &mut ErrorLogs, ball_path: &PathBuf) -> Option<Texture2D> {
+    let bytes = match fs::read(ball_path) {
         Ok(bytes) => bytes,
         Err(err) => {
             error_logs.display_error(format!(
@@ -136,5 +118,5 @@ pub fn get_random_texture(error_logs: &mut ErrorLogs) -> Option<(String, Texture
         }
     };
 
-    return Some((ball_name, ball_texture));
+    return Some(ball_texture);
 }

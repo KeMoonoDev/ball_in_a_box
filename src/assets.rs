@@ -9,6 +9,8 @@ use miniquad::{BlendFactor, BlendState, BlendValue, Equation};
 
 use crate::error_log::ErrorLogs;
 
+const ASSETS_FOLDER: &str = "assets";
+
 pub struct GameAssets {
     pub missing_texture: Texture2D,
     pub box_background_texture: Texture2D,
@@ -29,6 +31,27 @@ pub struct GameAssets {
     pub font: Option<Font>,
 }
 
+#[cfg(target_arch = "wasm32")]
+pub async fn load_texture(
+    asset_name: &str,
+    missing_texture: &Texture2D,
+    error_logs: &mut ErrorLogs,
+) -> Texture2D {
+    let path = format!("{ASSETS_FOLDER}/{asset_name}");
+    match macroquad::texture::load_texture(&path).await {
+        Ok(texture) => {
+            return texture;
+        }
+        Err(err) => {
+            error_logs.display_error(format!(
+                "Failed to load asset texture from \"{path}\": {err}"
+            ));
+            missing_texture.clone()
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_texture(
     asset_name: &str,
     mut assets_path: PathBuf,
@@ -82,6 +105,20 @@ pub fn load_texture(
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+pub async fn load_assets_string(asset_name: &str, error_logs: &mut ErrorLogs) -> Option<String> {
+    let path = format!("{ASSETS_FOLDER}/{asset_name}");
+
+    match load_string(&path).await {
+        Ok(string) => Some(string),
+        Err(err) => {
+            error_logs.display_error(format!("Failed to read string from \"{path}\": {err}"));
+            return None;
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_assets_string(
     asset_name: &str,
     mut assets_path: PathBuf,
@@ -121,6 +158,20 @@ pub fn load_assets_string(
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+pub async fn load_assets_font(asset_name: &str, error_logs: &mut ErrorLogs) -> Option<Font> {
+    let path = format!("{ASSETS_FOLDER}/{asset_name}");
+
+    match load_ttf_font(&path).await {
+        Ok(font) => Some(font),
+        Err(err) => {
+            error_logs.display_error(format!("Failed to read font from \"{path}\": {err}"));
+            None
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_assets_font(
     asset_name: &str,
     mut assets_path: PathBuf,
@@ -179,39 +230,33 @@ pub fn load_assets_font(
     }
 }
 
-pub fn load_shadow_material(
-    assets_path: PathBuf,
-    pack_path: Option<PathBuf>,
-    error_logs: &mut ErrorLogs,
-) -> Material {
-    if let Some(fragment) = load_assets_string("shadow.frag", assets_path, pack_path, error_logs) {
-        match load_material(
-            ShaderSource::Glsl {
-                vertex: VERTEX,
-                fragment: &fragment,
-            },
-            MaterialParams {
-                uniforms: vec![
-                    UniformDesc::new("in_shadow", UniformType::Float1),
-                    UniformDesc::new("shadow_strength", UniformType::Float1),
-                ],
-                pipeline_params: PipelineParams {
-                    color_blend: Some(BlendState::new(
-                        Equation::Add,
-                        BlendFactor::Value(BlendValue::SourceAlpha),
-                        BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
-                    )),
-                    ..Default::default()
-                },
+pub fn load_shadow_material(fragment: String, error_logs: &mut ErrorLogs) -> Material {
+    match load_material(
+        ShaderSource::Glsl {
+            vertex: VERTEX,
+            fragment: &fragment,
+        },
+        MaterialParams {
+            uniforms: vec![
+                UniformDesc::new("in_shadow", UniformType::Float1),
+                UniformDesc::new("shadow_strength", UniformType::Float1),
+            ],
+            pipeline_params: PipelineParams {
+                color_blend: Some(BlendState::new(
+                    Equation::Add,
+                    BlendFactor::Value(BlendValue::SourceAlpha),
+                    BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+                )),
                 ..Default::default()
             },
-        ) {
-            Ok(material) => return material,
-            Err(err) => {
-                error_logs.display_error(format!("Failed to create custom shadow material: {err}"));
-            }
-        };
-    }
+            ..Default::default()
+        },
+    ) {
+        Ok(material) => return material,
+        Err(err) => {
+            error_logs.display_error(format!("Failed to create custom shadow material: {err}"));
+        }
+    };
 
     match load_material(
         ShaderSource::Glsl {
@@ -243,48 +288,42 @@ pub fn load_shadow_material(
     };
 }
 
-pub fn load_ball_material(
-    assets_path: PathBuf,
-    pack_path: Option<PathBuf>,
-    error_logs: &mut ErrorLogs,
-) -> Material {
-    if let Some(fragment) = load_assets_string("ball.frag", assets_path, pack_path, error_logs) {
-        match load_material(
-            ShaderSource::Glsl {
-                vertex: VERTEX,
-                fragment: &fragment,
-            },
-            MaterialParams {
-                uniforms: vec![
-                    UniformDesc::new("rotation", UniformType::Float1),
-                    UniformDesc::new("ceil_distance", UniformType::Float1),
-                    UniformDesc::new("floor_distance", UniformType::Float1),
-                    UniformDesc::new("left_distance", UniformType::Float1),
-                    UniformDesc::new("right_distance", UniformType::Float1),
-                    UniformDesc::new("ball_radius", UniformType::Float1),
-                    UniformDesc::new("ambient_occlusion_focus", UniformType::Float1),
-                    UniformDesc::new("ambient_occlusion_strength", UniformType::Float1),
-                    UniformDesc::new("ambient_light", UniformType::Float1),
-                    UniformDesc::new("specular_focus", UniformType::Float1),
-                    UniformDesc::new("specular_strength", UniformType::Float1),
-                ],
-                pipeline_params: PipelineParams {
-                    color_blend: Some(BlendState::new(
-                        Equation::Add,
-                        BlendFactor::Value(BlendValue::SourceAlpha),
-                        BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
-                    )),
-                    ..Default::default()
-                },
+pub fn load_ball_material(fragment: String, error_logs: &mut ErrorLogs) -> Material {
+    match load_material(
+        ShaderSource::Glsl {
+            vertex: VERTEX,
+            fragment: &fragment,
+        },
+        MaterialParams {
+            uniforms: vec![
+                UniformDesc::new("rotation", UniformType::Float1),
+                UniformDesc::new("ceil_distance", UniformType::Float1),
+                UniformDesc::new("floor_distance", UniformType::Float1),
+                UniformDesc::new("left_distance", UniformType::Float1),
+                UniformDesc::new("right_distance", UniformType::Float1),
+                UniformDesc::new("ball_radius", UniformType::Float1),
+                UniformDesc::new("ambient_occlusion_focus", UniformType::Float1),
+                UniformDesc::new("ambient_occlusion_strength", UniformType::Float1),
+                UniformDesc::new("ambient_light", UniformType::Float1),
+                UniformDesc::new("specular_focus", UniformType::Float1),
+                UniformDesc::new("specular_strength", UniformType::Float1),
+            ],
+            pipeline_params: PipelineParams {
+                color_blend: Some(BlendState::new(
+                    Equation::Add,
+                    BlendFactor::Value(BlendValue::SourceAlpha),
+                    BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+                )),
                 ..Default::default()
             },
-        ) {
-            Ok(material) => return material,
-            Err(err) => {
-                error_logs.display_error(format!("Failed to create custom ball material: {err}"));
-            }
-        };
-    }
+            ..Default::default()
+        },
+    ) {
+        Ok(material) => return material,
+        Err(err) => {
+            error_logs.display_error(format!("Failed to create custom ball material: {err}"));
+        }
+    };
 
     match load_material(
         ShaderSource::Glsl {
@@ -326,12 +365,55 @@ pub fn load_ball_material(
 }
 
 impl GameAssets {
+    #[cfg(target_arch = "wasm32")]
+    pub async fn new(missing_texture: Texture2D, error_logs: &mut ErrorLogs) -> Self {
+        Self {
+            box_background_texture: load_texture(
+                "box_background.png",
+                &missing_texture,
+                error_logs,
+            )
+            .await,
+            box_side_texture: load_texture("box_side.png", &missing_texture, error_logs).await,
+            menu_background: load_texture("menu_background.png", &missing_texture, error_logs)
+                .await,
+            menu_button: load_texture("menu_button.png", &missing_texture, error_logs).await,
+            slider_background: load_texture("slider_background.png", &missing_texture, error_logs)
+                .await,
+            slider_bar: load_texture("slider_bar.png", &missing_texture, error_logs).await,
+            mouse_normal: load_texture("mouse_normal.png", &missing_texture, error_logs).await,
+            mouse_normal_move: load_texture("mouse_normal_move.png", &missing_texture, error_logs)
+                .await,
+            mouse_hold: load_texture("mouse_hold.png", &missing_texture, error_logs).await,
+            mouse_hold_move: load_texture("mouse_hold_move.png", &missing_texture, error_logs)
+                .await,
+            esc_normal: load_texture("esc_normal.png", &missing_texture, error_logs).await,
+            esc_hold: load_texture("esc_hold.png", &missing_texture, error_logs).await,
+            slash: load_texture("slash.png", &missing_texture, error_logs).await,
+            ball_material: load_ball_material(
+                load_assets_string("ball.frag", error_logs)
+                    .await
+                    .unwrap_or_else(|| FRAGMENT.to_string()),
+                error_logs,
+            ),
+            shadow_material: load_shadow_material(
+                load_assets_string("shadow.frag", error_logs)
+                    .await
+                    .unwrap_or_else(|| FRAGMENT.to_string()),
+                error_logs,
+            ),
+            font: load_assets_font("font.ttf", error_logs).await,
+            missing_texture,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(
         pack_path: Option<PathBuf>,
         missing_texture: Texture2D,
         error_logs: &mut ErrorLogs,
     ) -> Self {
-        let assets_path = PathBuf::from("./assets");
+        let assets_path = PathBuf::from(format!("./{ASSETS_FOLDER}"));
         Self {
             box_background_texture: load_texture(
                 "box_background.png",
@@ -424,10 +506,24 @@ impl GameAssets {
                 &missing_texture,
                 error_logs,
             ),
-            ball_material: load_ball_material(assets_path.clone(), pack_path.clone(), error_logs),
+            ball_material: load_ball_material(
+                load_assets_string(
+                    "ball.frag",
+                    assets_path.clone(),
+                    pack_path.clone(),
+                    error_logs,
+                )
+                .unwrap_or_else(|| FRAGMENT.to_string()),
+                error_logs,
+            ),
             shadow_material: load_shadow_material(
-                assets_path.clone(),
-                pack_path.clone(),
+                load_assets_string(
+                    "shadow.frag",
+                    assets_path.clone(),
+                    pack_path.clone(),
+                    error_logs,
+                )
+                .unwrap_or_else(|| FRAGMENT.to_string()),
                 error_logs,
             ),
             font: load_assets_font("font.ttf", assets_path, pack_path, error_logs),

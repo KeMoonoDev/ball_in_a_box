@@ -691,34 +691,36 @@ impl UiRenderer {
                                 current_settings.click_to_drag,
                                 &mut editing_settings.click_to_drag,
                             );
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                self.render_text(
+                                    game_assets,
+                                    vec2(0., start + lower_down * 2.45),
+                                    &format!("Current ball: {}", editing_settings.last_ball),
+                                    18,
+                                );
 
-                            self.render_text(
-                                game_assets,
-                                vec2(0., start + lower_down * 2.45),
-                                &format!("Current ball: {}", editing_settings.last_ball),
-                                18,
-                            );
+                                self.render_text(
+                                    game_assets,
+                                    vec2(0., start + lower_down * 2.8),
+                                    &format!("Current sounds: {}", editing_settings.last_sounds),
+                                    18,
+                                );
 
-                            self.render_text(
-                                game_assets,
-                                vec2(0., start + lower_down * 2.8),
-                                &format!("Current sounds: {}", editing_settings.last_sounds),
-                                18,
-                            );
-
-                            self.render_text(
-                                game_assets,
-                                vec2(0., start + lower_down * 3.15),
-                                &format!(
-                                    "Current asset pack: {}",
-                                    if editing_settings.last_asset_pack.is_empty() {
-                                        "None"
-                                    } else {
-                                        &editing_settings.last_asset_pack
-                                    }
-                                ),
-                                18,
-                            );
+                                self.render_text(
+                                    game_assets,
+                                    vec2(0., start + lower_down * 3.15),
+                                    &format!(
+                                        "Current asset pack: {}",
+                                        if editing_settings.last_asset_pack.is_empty() {
+                                            "None"
+                                        } else {
+                                            &editing_settings.last_asset_pack
+                                        }
+                                    ),
+                                    18,
+                                );
+                            }
                         }
                         _ => unreachable!(),
                     },
@@ -779,6 +781,7 @@ impl UiRenderer {
                     *settings_state = SettingsState::Physics(0);
                 }
 
+                #[cfg(not(target_arch = "wasm32"))]
                 if self.render_button(
                     game_assets,
                     hash!(),
@@ -792,11 +795,23 @@ impl UiRenderer {
                     *settings_state = SettingsState::FpsDelay(0);
                 }
 
+                let misc_x_pos;
+
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    misc_x_pos = seperate;
+                }
+
+                #[cfg(target_arch = "wasm32")]
+                {
+                    misc_x_pos = 0.0;
+                }
+
                 if self.render_button(
                     game_assets,
                     hash!(),
                     mouse_pos,
-                    vec2(seperate, lower_down * 0.2),
+                    vec2(misc_x_pos, lower_down * 0.2),
                     section_button_size,
                     "Misc",
                     get_changed_default_color(editing_settings.misc_changed(current_settings)),

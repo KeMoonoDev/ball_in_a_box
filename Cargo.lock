@@ -206,7 +206,7 @@ checksum = "b5aba8db14291edd000dfcc4d620c7ebfb122c613afb886ca8803fa4e128a20a"
 [[package]]
 name = "macroquad"
 version = "0.4.13"
-source = "git+https://github.com/inzan17/macroquad?branch=ball-in-a-box#7bc415ab06d78fe248bd9a4fb0a13c4f657fbcab"
+source = "git+https://github.com/KeMoonoDev/macroquad?rev=2823897#2823897c4978b4a98543d68bcf43f1ed083eed54"
 dependencies = [
  "fontdue",
  "glam",
@@ -220,7 +220,7 @@ dependencies = [
 [[package]]
 name = "macroquad_macro"
 version = "0.1.8"
-source = "git+https://github.com/inzan17/macroquad?branch=ball-in-a-box#7bc415ab06d78fe248bd9a4fb0a13c4f657fbcab"
+source = "git+https://github.com/KeMoonoDev/macroquad?rev=2823897#2823897c4978b4a98543d68bcf43f1ed083eed54"
 
 [[package]]
 name = "malloc_buf"
@@ -240,7 +240,7 @@ checksum = "60302e4db3a61da70c0cb7991976248362f30319e88850c487b9b95bbf059e00"
 [[package]]
 name = "miniquad"
 version = "0.4.7"
-source = "git+https://github.com/InZan17/miniquad?branch=ball-in-a-box#7895659afbdfac077a63d95cdec94ea722c358c9"
+source = "git+https://github.com/KeMoonoDev/miniquad?rev=34122a6#34122a6b318fb5896063a68880a35fd8e85de308"
 dependencies = [
  "libc",
  "ndk-sys",
@@ -261,7 +261,7 @@ dependencies = [
 [[package]]
 name = "nanoserde"
 version = "0.2.0-beta.2"
-source = "git+https://github.com/inzan17/nanoserde?rev=6e42d4c#6e42d4cf8a6aeb92ac20060607927ba8e3ce89aa"
+source = "git+https://github.com/KeMoonoDev/nanoserde?rev=6e42d4c#6e42d4cf8a6aeb92ac20060607927ba8e3ce89aa"
 dependencies = [
  "nanoserde-derive",
 ]
@@ -269,7 +269,7 @@ dependencies = [
 [[package]]
 name = "nanoserde-derive"
 version = "0.2.0-beta.2"
-source = "git+https://github.com/inzan17/nanoserde?rev=6e42d4c#6e42d4cf8a6aeb92ac20060607927ba8e3ce89aa"
+source = "git+https://github.com/KeMoonoDev/nanoserde?rev=6e42d4c#6e42d4cf8a6aeb92ac20060607927ba8e3ce89aa"
 
 [[package]]
 name = "ndk-sys"
@@ -350,7 +350,7 @@ checksum = "5a651516ddc9168ebd67b24afd085a718be02f8858fe406591b013d101ce2f40"
 [[package]]
 name = "quad-snd"
 version = "0.2.8"
-source = "git+https://github.com/InZan17/quad-snd?branch=ball-in-a-box#a0f7d12e275a55c69e22dbb7673f5c269b99d896"
+source = "git+https://github.com/KeMoonoDev/quad-snd?rev=e227845#e2278454497f2fa4616ec972b7d2f43fab47acd2"
 dependencies = [
  "audir-sles",
  "audrey",

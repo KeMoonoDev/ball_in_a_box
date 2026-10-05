@@ -1,32 +1,34 @@
 #![cfg_attr(
-    all(
-        target_os = "windows",
-        not(debug_assertions),
-    ),
+    all(target_os = "windows", not(debug_assertions),),
     windows_subsystem = "windows"
 )]
-  
-use std::{
-    f32::consts::PI,
-    thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+
+use std::f32::consts::PI;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::{thread, time::Duration};
 
 use assets::{find_pack, GameAssets};
 use ball::Ball;
 use circular_buffer::CircularBuffer;
 use conf::{Icon, Platform};
 use error_log::ErrorLogs;
-use macroquad::{audio::set_sound_volume, prelude::*, rand};
+use macroquad::{
+    audio::set_sound_volume,
+    miniquad::{conf::LinuxBackend, date::now},
+    prelude::*,
+    rand,
+};
 use miniquad::*;
 use settings::{read_settings_file, write_settings_file, Settings};
 use sounds::{find_sounds, get_random_sounds};
-use textures::{find_texture, get_random_texture};
+use textures::{find_ball_texture, get_random_ball_texture};
 use tutorial::{render_menu_tutorial, render_mouse_tutorial};
 use ui::{SettingsState, UiRenderer, MENU_SIZE};
-use window::{
-    get_window_position, set_mouse_cursor, set_swap_interval, set_window_position, set_window_size,
-};
+
+#[cfg(not(target_arch = "wasm32"))]
+use window::{get_window_position, set_swap_interval};
+use window::{set_mouse_cursor, set_window_position, set_window_size};
 
 pub mod assets;
 pub mod ball;
@@ -37,6 +39,43 @@ pub mod textures;
 pub mod tutorial;
 pub mod ui;
 
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+extern "C" {
+    fn get_canvas_position_x() -> i32;
+    fn get_canvas_position_y() -> i32;
+    fn get_cursor_position_x() -> i32;
+    fn get_cursor_position_y() -> i32;
+    fn finished_loading();
+}
+
+pub fn set_box_size(width: u32, height: u32) {
+    set_window_size(width, height);
+}
+
+pub fn set_box_position(width: i32, height: i32) {
+    set_window_position(width, height);
+}
+
+pub fn get_box_position() -> (i32, i32) {
+    #[cfg(not(target_arch = "wasm32"))]
+    return get_window_position();
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return (get_canvas_position_x(), get_canvas_position_y());
+    };
+}
+
+pub fn get_mouse_position() -> (i32, i32) {
+    #[cfg(not(target_arch = "wasm32"))]
+    return window::get_screen_mouse_position();
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return (get_cursor_position_x(), get_cursor_position_y());
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 include!(concat!(env!("OUT_DIR"), "/icon_data.rs"));
 
 const FPS_LIMIT: u32 = 500;
@@ -60,13 +99,17 @@ pub fn window_conf() -> Conf {
         fullscreen: false,
         window_resizable: false,
         sample_count: 0,
+        #[cfg(not(target_arch = "wasm32"))]
         icon: Some(Icon {
             small: ICON_SMALL,
             medium: ICON_MEDIUM,
             big: ICON_BIG,
         }),
+        #[cfg(target_arch = "wasm32")]
+        icon: None,
         platform: Platform {
             swap_interval: Some(if settings.vsync { 1 } else { 0 }),
+            linux_backend: LinuxBackend::X11Only,
             ..Default::default()
         },
         ..Default::default()
@@ -110,15 +153,7 @@ impl FromTuple for Vec2 {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    {
-        let start = SystemTime::now();
-        let seed = start
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_else(|err| err.duration())
-            .as_nanos() as u64;
-
-        rand::srand(seed);
-    }
+    rand::srand(now().to_bits());
 
     let mut error_logs = ErrorLogs::new();
 
@@ -127,6 +162,8 @@ async fn main() {
         write_settings_file(&settings);
         settings
     });
+
+    set_box_size(settings.box_width, settings.box_height);
 
     let missing_texture = Texture2D::from_rgba8(
         2,
@@ -137,6 +174,7 @@ async fn main() {
     );
     missing_texture.set_filter(macroquad::texture::FilterMode::Nearest);
 
+    #[cfg(not(target_arch = "wasm32"))]
     let pack_path = if !settings.last_asset_pack.is_empty() {
         if let Some((_, pack_path)) = find_pack(&settings.last_asset_pack, &mut error_logs) {
             Some(pack_path)
@@ -147,33 +185,77 @@ async fn main() {
         None
     };
 
+    #[cfg(target_arch = "wasm32")]
+    let mut game_assets = GameAssets::new(missing_texture, &mut error_logs).await;
+    #[cfg(not(target_arch = "wasm32"))]
     let mut game_assets = GameAssets::new(pack_path, missing_texture, &mut error_logs);
 
     let mut ball = {
-        let option_sounds = find_sounds(&settings.last_sounds, &mut error_logs).await;
+        let sounds;
 
-        let sounds = if let Some(sounds) = option_sounds {
-            sounds
-        } else {
-            get_random_sounds(&mut error_logs)
-                .await
-                .unwrap_or_else(|| (settings.last_sounds.clone(), Vec::new()))
-        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            let sound_paths = vec![
+                "sounds/thud/thud1.ogg",
+                "sounds/thud/thud2.ogg",
+                "sounds/thud/thud3.ogg",
+                "sounds/thud/thud4.ogg",
+                "sounds/thud/thud5.ogg",
+            ];
 
-        Ball::new(
-            find_texture(&settings.last_ball, &mut error_logs)
+            let mut temp_sounds = Vec::with_capacity(sound_paths.len());
+
+            for sound_path in sound_paths {
+                use macroquad::audio::load_sound;
+
+                match load_sound(sound_path).await {
+                    Ok(sound) => temp_sounds.push(sound),
+                    Err(err) => error_logs
+                        .display_error(format!("Failed to load sound \"{sound_path}\": {err}")),
+                }
+            }
+
+            sounds = temp_sounds;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            sounds =
+                if let Some(sounds) = find_sounds(&settings.last_sounds, &mut error_logs).await {
+                    sounds
+                } else {
+                    get_random_sounds(&mut error_logs)
+                        .await
+                        .unwrap_or_else(|| (settings.last_sounds.clone(), Vec::new()))
+                }
+                .1;
+        }
+
+        let texture;
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            texture = load_texture("balls/smile.png").await.unwrap_or_else(|err| {
+                error_logs.display_error(format!("Failed to load texture: {err}"));
+                game_assets.missing_texture.clone()
+            });
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            texture = find_ball_texture(&settings.last_ball, &mut error_logs)
                 .unwrap_or_else(|| {
-                    get_random_texture(&mut error_logs).unwrap_or_else(|| {
+                    get_random_ball_texture(&mut error_logs).unwrap_or_else(|| {
                         (
                             settings.last_ball.clone(),
                             game_assets.missing_texture.clone(),
                         )
                     })
                 })
-                .1,
-            settings.ball_radius as f32,
-            sounds.1,
-        )
+                .1;
+        };
+
+        Ball::new(texture, settings.ball_radius as f32, sounds)
     };
 
     let mut box_size = vec2(settings.box_width as f32, settings.box_height as f32);
@@ -202,6 +284,7 @@ async fn main() {
     let mut window_velocity = Vec2::ZERO;
 
     let mut frames_after_start: u8 = 0;
+    #[cfg(not(target_arch = "wasm32"))]
     let mut prev_render_time = get_time();
     let mut time_since_start = 0.;
 
@@ -220,6 +303,11 @@ async fn main() {
 
     let mut clicked_mouse_position = Vec2::ZERO;
     let mut moved_during_hold = false;
+
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        finished_loading();
+    };
 
     loop {
         clear_background(DARKGRAY);
@@ -268,7 +356,7 @@ async fn main() {
 
         let open_menu = button_pressed && last_click > 0.0 || is_key_pressed(KeyCode::Escape);
 
-        let current_mouse_position = Vec2::from_i32_tuple(window::get_screen_mouse_position());
+        let current_mouse_position = Vec2::from_i32_tuple(get_mouse_position());
 
         if button_pressed {
             last_click = 0.4;
@@ -311,58 +399,68 @@ async fn main() {
         let local_mouse_pos = if let Some(mouse_pos) = mouse_offset {
             -mouse_pos
         } else {
-            (current_mouse_position - Vec2::from_i32_tuple(get_window_position()))
+            (current_mouse_position - Vec2::from_i32_tuple(get_box_position()))
                 .clamp(Vec2::ZERO, box_size - 1.0)
         };
 
         // Handle typing
-        while let Some(character) = get_char_pressed() {
-            if character.is_control() {
-                continue;
-            }
-            ui_renderer.user_input.push(character);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            while let Some(character) = get_char_pressed() {
+                if character.is_control() {
+                    continue;
+                }
+                ui_renderer.user_input.push(character);
 
-            if text_input.len() >= MAX_INPUT_LEN {
-                text_input.remove(0);
+                if text_input.len() >= MAX_INPUT_LEN {
+                    text_input.remove(0);
+                }
+
+                text_input.push(character.to_ascii_lowercase());
+
+                if let Some((ball_name, texture)) = find_ball_texture(&text_input, &mut error_logs)
+                {
+                    ball.texture = texture;
+                    settings.last_ball = ball_name.clone();
+                    editing_settings.last_ball = ball_name;
+                    write_settings_file(&settings);
+                }
+
+                if let Some((sounds_name, sounds)) = find_sounds(&text_input, &mut error_logs).await
+                {
+                    ball.sounds = sounds.clone();
+                    settings.last_sounds = sounds_name.clone();
+                    editing_settings.last_sounds = sounds_name;
+                    write_settings_file(&settings);
+                }
+
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some((pack_name, pack_path)) = find_pack(&text_input, &mut error_logs) {
+                    settings.last_asset_pack = pack_name.clone();
+                    editing_settings.last_asset_pack = pack_name;
+                    write_settings_file(&settings);
+                    game_assets = GameAssets::new(
+                        Some(pack_path),
+                        game_assets.missing_texture,
+                        &mut error_logs,
+                    )
+                } else if (text_input.ends_with("none") || text_input.ends_with("box"))
+                    && !settings.last_asset_pack.is_empty()
+                {
+                    settings.last_asset_pack = String::new();
+                    editing_settings.last_asset_pack = String::new();
+                    write_settings_file(&settings);
+                    game_assets =
+                        GameAssets::new(None, game_assets.missing_texture, &mut error_logs)
+                }
             }
 
-            text_input.push(character.to_ascii_lowercase());
-
-            if let Some((ball_name, texture)) = find_texture(&text_input, &mut error_logs) {
-                ball.texture = texture;
-                settings.last_ball = ball_name.clone();
-                editing_settings.last_ball = ball_name;
-                write_settings_file(&settings);
-            }
-
-            if let Some((sounds_name, sounds)) = find_sounds(&text_input, &mut error_logs).await {
-                ball.sounds = sounds.clone();
-                settings.last_sounds = sounds_name.clone();
-                editing_settings.last_sounds = sounds_name;
-                write_settings_file(&settings);
-            }
-
-            if let Some((pack_name, pack_path)) = find_pack(&text_input, &mut error_logs) {
-                settings.last_asset_pack = pack_name.clone();
-                editing_settings.last_asset_pack = pack_name;
-                write_settings_file(&settings);
-                game_assets = GameAssets::new(
-                    Some(pack_path),
-                    game_assets.missing_texture,
-                    &mut error_logs,
-                )
-            } else if (text_input.ends_with("none") || text_input.ends_with("box")) && !settings.last_asset_pack.is_empty() {
-                settings.last_asset_pack = String::new();
-                editing_settings.last_asset_pack = String::new();
-                write_settings_file(&settings);
-                game_assets = GameAssets::new(None, game_assets.missing_texture, &mut error_logs)
-            }
-        }
-        if is_key_pressed(KeyCode::Backspace) {
-            times_clicked_backspace = times_clicked_backspace.saturating_add(1);
-            text_input.clear();
-            if ui_renderer.user_input.pop().is_none() {
-                ui_renderer.reset_field = true;
+            if is_key_pressed(KeyCode::Backspace) {
+                times_clicked_backspace = times_clicked_backspace.saturating_add(1);
+                text_input.clear();
+                if ui_renderer.user_input.pop().is_none() {
+                    ui_renderer.reset_field = true;
+                }
             }
         }
 
@@ -445,7 +543,7 @@ async fn main() {
             for delta in mouse_deltas.iter() {
                 new_pos += *delta;
             }
-            set_window_position(new_pos.x as i32, new_pos.y as i32);
+            set_box_position(new_pos.x as i32, new_pos.y as i32);
         } else {
             if mouse_deltas.len() > 0 {
                 mouse_deltas.push_back(Vec2::ZERO);
@@ -463,7 +561,7 @@ async fn main() {
 
                 new_pos += delayed_delta_pos;
 
-                set_window_position(new_pos.x as i32, new_pos.y as i32);
+                set_box_position(new_pos.x as i32, new_pos.y as i32);
             };
         }
 
@@ -614,6 +712,7 @@ async fn main() {
             );
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         if !settings.understands_menu {
             if let Some(time_of_understanding_move) = time_of_understanding_move {
                 if time_since_start - time_of_understanding_move > MENU_TUTORIAL_WAIT {
@@ -648,7 +747,7 @@ async fn main() {
             let new_box_size = vec2(settings.box_width as f32, settings.box_height as f32);
             let box_size_difference = new_box_size - box_size;
             let new_window_position =
-                Vec2::from_i32_tuple(get_window_position()) - (box_size_difference / 2.).round();
+                Vec2::from_i32_tuple(get_box_position()) - (box_size_difference / 2.).round();
 
             let window_rect = Rect::new(
                 new_window_position.x,
@@ -666,8 +765,11 @@ async fn main() {
 
             let new_window_position = new_window_position + window_position_offset;
 
-            set_window_position(new_window_position.x as _, new_window_position.y as _);
-            set_window_size(settings.box_width, settings.box_height);
+            #[cfg(not(target_arch = "wasm32"))] // Positioning first looks better on desktop.
+            set_box_position(new_window_position.x as _, new_window_position.y as _);
+            set_box_size(settings.box_width, settings.box_height);
+            #[cfg(target_arch = "wasm32")] // Positioning last doesn't break the web version.
+            set_box_position(new_window_position.x as _, new_window_position.y as _);
 
             box_size = new_box_size;
 
@@ -675,9 +777,11 @@ async fn main() {
                 zoom: vec2(1. / box_size.x, 1. / box_size.y),
                 ..Default::default()
             });
+            #[cfg(not(target_arch = "wasm32"))]
             set_swap_interval(if settings.vsync { 1 } else { 0 });
             if change_ball {
-                if let Some((_, texture)) = find_texture(&settings.last_ball, &mut error_logs) {
+                if let Some((_, texture)) = find_ball_texture(&settings.last_ball, &mut error_logs)
+                {
                     ball.texture = texture
                 }
             }
@@ -689,6 +793,7 @@ async fn main() {
                 }
             }
 
+            #[cfg(not(target_arch = "wasm32"))]
             if change_assets {
                 let pack_path = if !settings.last_asset_pack.is_empty() {
                     if let Some((_, pack_path)) =
@@ -747,6 +852,7 @@ async fn main() {
 
         error_logs.render_errors(-box_size, box_size.x * 2.);
 
+        #[cfg(not(target_arch = "wasm32"))]
         if settings.max_fps < FPS_LIMIT {
             let min_fps_delta = 1. / settings.max_fps as f64;
 

@@ -345,6 +345,12 @@ impl Default for Settings {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+pub fn read_settings_file() -> Option<Settings> {
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn read_settings_file() -> Option<Settings> {
     let bytes = fs::read("./settings_in_a.json").ok()?;
     let string = str::from_utf8(&bytes).ok()?;
